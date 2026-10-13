@@ -688,3 +688,103 @@ fn sql_multiline_block_comment_merges_with_an_adjacent_line_comment() {
     assert_eq!((blocks[0].start_line, blocks[0].end_line), (1, 4));
     assert_eq!((blocks[1].start_line, blocks[1].end_line), (6, 6));
 }
+
+#[test]
+fn cross_file_ref_needs_the_whole_extension() {
+    for source in [
+        "# see foo.pyi for the stubs\nx = 1\n",
+        "# see package.json for the deps\nx = 1\n",
+        "# see data.golden for the fixture\nx = 1\n",
+        "# matplotlib.pyplot is imported as plt\nx = 1\n",
+        "# see schema.jsonl for the rows\nx = 1\n",
+        "# see app.tfstate for the outputs\nx = 1\n",
+    ] {
+        let rules: Vec<&str> = violations_for(source, Language::Python)
+            .iter()
+            .map(|violation| violation.rule)
+            .collect();
+        assert!(
+            !rules.contains(&"CROSS_FILE_REF"),
+            "{source:?}: got {rules:?}"
+        );
+    }
+    for source in [
+        "# see handler.py:147 for the retry\nx = 1\n",
+        "# see src/main.rs for the entry point\nx = 1\n",
+        "# see docs/readme.md::install for the steps\nx = 1\n",
+    ] {
+        let rules: Vec<&str> = violations_for(source, Language::Python)
+            .iter()
+            .map(|violation| violation.rule)
+            .collect();
+        assert!(
+            rules.contains(&"CROSS_FILE_REF"),
+            "{source:?}: got {rules:?}"
+        );
+    }
+}
+
+#[test]
+fn banner_dividers_are_not_doc_comments() {
+    let slash_banner = "\
+////////////////////////
+// Validates the header.
+// Rejects bad versions.
+// Rejects bad checksums.
+";
+    let star_banner = "\
+/***********************
+ * Validates the header.
+ * Rejects bad versions.
+ * Rejects bad checksums.
+ */
+";
+    let spacer = "\
+/**/
+// Validates the header.
+// Rejects bad versions.
+// Rejects bad checksums.
+";
+    let cases = [
+        (Language::Rust, format!("{spacer}fn validate() {{}}\n")),
+        (
+            Language::JavaScript,
+            format!("{spacer}function validate() {{}}\n"),
+        ),
+        (
+            Language::TypeScript,
+            format!("{spacer}function validate() {{}}\n"),
+        ),
+        (
+            Language::Java,
+            format!("class A {{\n{spacer}void validate() {{}}\n}}\n"),
+        ),
+        (
+            Language::Rust,
+            format!("{slash_banner}fn validate() {{}}\n"),
+        ),
+        (Language::Rust, format!("{star_banner}fn validate() {{}}\n")),
+        (
+            Language::JavaScript,
+            format!("{star_banner}function validate() {{}}\n"),
+        ),
+        (
+            Language::TypeScript,
+            format!("{star_banner}function validate() {{}}\n"),
+        ),
+        (
+            Language::Java,
+            format!("class A {{\n{star_banner}void validate() {{}}\n}}\n"),
+        ),
+    ];
+    for (language, source) in cases {
+        let rules: Vec<&str> = violations_for(&source, language)
+            .iter()
+            .map(|violation| violation.rule)
+            .collect();
+        assert!(
+            rules.contains(&"VERBOSE_COMMENT"),
+            "{language:?} {source:?}: got {rules:?}"
+        );
+    }
+}

@@ -51,7 +51,9 @@ impl Language {
     }
 
     /// Comment-block prefixes that mark real documentation (JSDoc/Javadoc, Rust's
-    /// `///`/`//!`/`/**`/`/*!`), exempt from the verbose-comment length
+    /// `///`/`//!`/`/**`/`/*!`). A divider or spacer that merely opens with
+    /// those characters (`////`, `/***`, `/**/`) documents nothing, so it is
+    /// carved out. The prefixes are exempt from the verbose-comment length
     /// rule the same way Python docstrings are exempt (docstrings aren't
     /// `comment` nodes at all in tree-sitter's Python grammar, so they
     /// never reach this check in the first place). Go has no such prefix;
@@ -62,11 +64,15 @@ impl Language {
         match self {
             Language::JavaScript | Language::TypeScript | Language::Java => {
                 trimmed.starts_with("/**")
+                    && !trimmed.starts_with("/***")
+                    && !trimmed.starts_with("/**/")
             }
             Language::Rust => {
-                trimmed.starts_with("///")
+                (trimmed.starts_with("///") && !trimmed.starts_with("////"))
                     || trimmed.starts_with("//!")
-                    || trimmed.starts_with("/**")
+                    || (trimmed.starts_with("/**")
+                        && !trimmed.starts_with("/***")
+                        && !trimmed.starts_with("/**/"))
                     || trimmed.starts_with("/*!")
             }
             Language::Python
