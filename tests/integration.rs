@@ -1,5 +1,5 @@
 use std::path::Path;
-use windbag::comments::extract_blocks;
+use windbag::comments::{extract_blocks, extract_blocks_with_config};
 use windbag::config::Config;
 use windbag::lang::Language;
 use windbag::rules::{check_block, Severity};
@@ -615,6 +615,54 @@ fn sql_flags_slop_in_line_block_and_jinja_comments() {
     );
 }
 
+#[test]
+fn sql_mysql_hash_comments_are_checked_and_literals_are_skipped() {
+    let source = include_str!("fixtures/mysql_comments.sql");
+    let mut config = Config::default();
+    config.sql.hash_comments = true;
+    let blocks = extract_blocks_with_config(source, Language::Sql, &config).unwrap();
+    let spans: Vec<_> = blocks.iter().map(|b| (b.start_line, b.end_line)).collect();
+    assert_eq!(spans, vec![(1, 2), (6, 6), (15, 15)]);
+    assert_eq!(blocks[0].attached_code_lines, 2);
+    assert_eq!(
+        blocks[0].attached_code_text.as_deref(),
+        Some("select id\nfrom events;")
+    );
+    assert_eq!(blocks[1].text, "# This should work hopefully.");
+    assert_eq!(blocks[2].text, "# SCA-702");
+    assert_eq!(blocks[2].attached_code_lines, 0);
+
+    let violations: Vec<_> = blocks
+        .iter()
+        .flat_map(|b| check_block(Path::new("fixture.sql"), b, &config))
+        .collect();
+    for (line, rule) in [
+        (1, "TICKET_ID"),
+        (1, "HISTORY_NARRATION"),
+        (6, "HEDGE_LANGUAGE"),
+        (15, "TICKET_ID"),
+    ] {
+        assert!(
+            violations.iter().any(|v| v.line == line && v.rule == rule),
+            "expected {rule} on line {line}, got {violations:?}"
+        );
+    }
+    assert!(violations.iter().all(|v| [1, 6, 15].contains(&v.line)));
+}
+
+#[test]
+fn sql_hash_comments_handle_crlf_and_an_empty_comment_at_eof() {
+    let mut config = Config::default();
+    config.sql.hash_comments = true;
+    let blocks =
+        extract_blocks_with_config("  # first\r\nselect 1;\r\n#", Language::Sql, &config).unwrap();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!((blocks[0].start_line, blocks[0].end_line), (1, 1));
+    assert_eq!(blocks[0].attached_code_text.as_deref(), Some("select 1;"));
+    assert_eq!((blocks[1].start_line, blocks[1].end_line), (3, 3));
+    assert_eq!(blocks[1].text, "#");
+}
+
 /// A `--` or `/* */` inside a string literal, or inside a `{{ }}` Jinja
 /// expression, is data the template emits, not a comment.
 #[test]
@@ -687,4 +735,76 @@ fn sql_multiline_block_comment_merges_with_an_adjacent_line_comment() {
     assert_eq!(blocks.len(), 2, "got {:#?}", blocks);
     assert_eq!((blocks[0].start_line, blocks[0].end_line), (1, 4));
     assert_eq!((blocks[1].start_line, blocks[1].end_line), (6, 6));
+}
+
+#[test]
+fn sql_hash_operators_are_not_comments_by_default() {
+    let source =
+        "select 17 # 5, payload #>> '{SCA-901}', payload #> '{SCA-902}' from events;\n# SCA-903\n";
+    assert!(extract_blocks(source, Language::Sql).unwrap().is_empty());
+    assert!(windbag::sql::scan_sql_comments(source).is_empty());
+    assert!(
+        extract_blocks_with_config(source, Language::Sql, &Config::default())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn sql_hash_comments_cli_respects_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let sql = dir.path().join("query.sql");
+    let config_path = dir.path().join("windbag.toml");
+    std::fs::write(&sql, "# SCA-701\nselect 1;\n").unwrap();
+
+    // A missing config, existing configs, and an empty SQL section all
+    // preserve the default interpretation of hashes as SQL syntax.
+    for config in [
+        None,
+        Some("[windbag]\nexclude = []\n"),
+        Some("[windbag.sql]\n"),
+        Some("[windbag.sql]\nhash_comments = false\n"),
+        Some("[windbag.sql]\nhash_comments = true\n"),
+    ] {
+        if let Some(contents) = config {
+            std::fs::write(&config_path, contents).unwrap();
+        }
+        let enabled = config.is_some_and(|c| c.contains("hash_comments = true"));
+        assert_eq!(
+            Config::load(&config_path).unwrap().sql.hash_comments,
+            enabled
+        );
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_windbag"))
+            .arg("check")
+            .arg("--json")
+            .arg("--config")
+            .arg(&config_path)
+            .arg(&sql)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(if enabled { 1 } else { 0 }),
+            "config {config:?}: {stdout}; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(stdout.contains("TICKET_ID"), enabled, "{stdout}");
+    }
+}
+
+#[test]
+fn init_config_keeps_sql_hash_comments_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_windbag"))
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let path = dir.path().join("windbag.toml");
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("hash_comments = false"));
+    assert!(!Config::load(&path).unwrap().sql.hash_comments);
 }
