@@ -992,13 +992,40 @@ fn preproc_an_identifier_ending_in_r_is_not_a_raw_string() {
 
 #[test]
 fn preproc_a_lone_apostrophe_does_not_hide_a_comment() {
-    let source = "#error cant parse ' // Was missing entirely (SCA-705).\nint x;\n";
-    for language in [Language::C, Language::Cpp] {
-        let rules: Vec<&str> = violations_for(source, language)
-            .iter()
-            .map(|violation| violation.rule)
-            .collect();
-        assert!(rules.contains(&"TICKET_ID"), "got {rules:?}");
+    for source in [
+        "#error cant parse ' // Was missing entirely (SCA-705).\nint x;\n",
+        "#error unknown 'mode // it's unset (SCA-705).\nint x;\n",
+    ] {
+        for language in [Language::C, Language::Cpp] {
+            let rules: Vec<&str> = violations_for(source, language)
+                .iter()
+                .map(|violation| violation.rule)
+                .collect();
+            assert!(rules.contains(&"TICKET_ID"), "{source:?}: got {rules:?}");
+        }
+    }
+}
+
+#[test]
+fn a_one_line_directive_is_one_attached_code_line() {
+    let comment = "\
+// Validates the header.
+// Rejects bad versions.
+// Rejects bad checksums.
+// Rejects short payloads.
+";
+    for code in ["#define MAX 10\n", "int max = 10;\n"] {
+        let source = format!("{comment}{code}");
+        for language in [Language::C, Language::Cpp] {
+            let rules: Vec<&str> = violations_for(&source, language)
+                .iter()
+                .map(|violation| violation.rule)
+                .collect();
+            assert!(
+                rules.contains(&"VERBOSE_COMMENT"),
+                "{code:?}: got {rules:?}"
+            );
+        }
     }
 }
 

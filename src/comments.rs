@@ -103,6 +103,7 @@ fn closes_char_literal(bytes: &[u8], quote: usize) -> bool {
         match b {
             b'\\' => i += 1,
             b'\n' => return false,
+            b'/' if bytes.get(i + 1) == Some(&b'/') => return false,
             b'\'' => return true,
             _ => {}
         }
@@ -265,7 +266,13 @@ fn attached_sibling_info(
 ) -> (usize, Option<String>) {
     match last_comment_node.next_sibling() {
         Some(sibling) if sibling.start_position().row == end_row + 1 => {
-            let span = sibling.end_position().row - sibling.start_position().row + 1;
+            let end = sibling.end_position();
+            let end_row = if end.column == 0 && end.row > sibling.start_position().row {
+                end.row - 1
+            } else {
+                end.row
+            };
+            let span = end_row - sibling.start_position().row + 1;
             (span, Some(node_text(source, &sibling)))
         }
         _ => (0, None),
