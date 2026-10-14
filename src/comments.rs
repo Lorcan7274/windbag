@@ -41,6 +41,15 @@ fn collect_comment_nodes<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
 /// or code line between them) are merged into a single block, matching how
 /// a human reads a paragraph-style comment as one unit.
 pub fn extract_blocks(source: &str, language: Language) -> anyhow::Result<Vec<CommentBlock>> {
+    extract_blocks_with_config(source, language, &crate::config::Config::default())
+}
+
+/// Extracts comment blocks using the configured SQL comment syntax.
+pub fn extract_blocks_with_config(
+    source: &str,
+    language: Language,
+    config: &crate::config::Config,
+) -> anyhow::Result<Vec<CommentBlock>> {
     match language.ts_language() {
         Some(ts_language) => extract_treesitter_blocks(source, &ts_language, language),
         // Markdown, whose `<!-- -->` shares an `html_block` node with
@@ -48,7 +57,10 @@ pub fn extract_blocks(source: &str, language: Language) -> anyhow::Result<Vec<Co
         None if language == Language::Markdown => Ok(scan_html_comments(source)),
         // SQL, which in practice is a dbt or SQLMesh template that no SQL
         // grammar parses cleanly.
-        None => Ok(crate::sql::scan_sql_comments(source)),
+        None => Ok(crate::sql::scan_sql_comments_with_config(
+            source,
+            &config.sql,
+        )),
     }
 }
 
