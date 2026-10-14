@@ -36,9 +36,19 @@ shape in a config file, not a comment outgrowing its code.
 `.sql` files are read as Jinja-templated SQL, which is what dbt and SQLMesh
 models are. `--`, `/* */`, and Jinja `{# ... #}` comments are all checked. A
 marker inside a `'string'`, a `"quoted identifier"`, a `$$ ... $$` body, or a
-`{{ ... }}` / `{% ... %}` tag is data the template emits, not a comment. The
-scanner is dialect-agnostic, so Snowflake, Postgres, BigQuery, and the rest
-all work; MySQL-style `#` line comments are the one form it does not read.
+`{{ ... }}` / `{% ... %}` tag is data the template emits, not a comment.
+
+MySQL-style `#` line comments are opt-in because other SQL dialects use
+hashes in operators and identifiers. Enable them in `windbag.toml`:
+
+```toml
+[windbag.sql]
+hash_comments = true
+```
+
+This setting defaults to `false` and applies to all SQL files in a check.
+When enabled, `#` outside the quoted and templated regions above starts a
+line comment. It does not select or auto-detect a SQL dialect.
 
 A comment is measured against the statement below it: the non-blank lines
 that follow, through the first one ending in `;`.

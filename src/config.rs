@@ -211,9 +211,19 @@ fn default_exclude() -> Vec<String> {
     vec![]
 }
 
+/// Optional SQL comment syntax shared by all SQL files in a check.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SqlConfig {
+    /// Treat `#` as a line comment. Disabled because other dialects use
+    /// hashes in operators and identifiers.
+    pub hash_comments: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub sql: SqlConfig,
     pub exclude: Vec<String>,
     #[serde(rename = "ticket_id")]
     pub ticket_id: TicketIdConfig,
@@ -233,6 +243,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             exclude: default_exclude(),
+            sql: SqlConfig::default(),
             ticket_id: TicketIdConfig::default(),
             history_narration: HistoryNarrationConfig::default(),
             hedge_language: HedgeLanguageConfig::default(),

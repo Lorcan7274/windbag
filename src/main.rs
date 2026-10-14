@@ -77,6 +77,10 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"[windbag]
 # Glob patterns (relative to repo root) to skip entirely.
 exclude = []
 
+[windbag.sql]
+# Enable MySQL-style # line comments for SQL files.
+hash_comments = false
+
 [windbag.ticket_id]
 enabled = true
 # Generic ticket-shape pattern. Narrow this to your own tracker's prefix
@@ -253,7 +257,7 @@ fn check_source(
     config: &Config,
     added_lines: Option<&std::collections::HashSet<usize>>,
 ) -> Vec<Violation> {
-    let blocks = match comments::extract_blocks(source, language) {
+    let blocks = match comments::extract_blocks_with_config(source, language, config) {
         Ok(b) => b,
         Err(_) => return Vec::new(),
     };

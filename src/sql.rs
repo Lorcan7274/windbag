@@ -4,11 +4,12 @@
 //! Jinja, which no SQL grammar parses cleanly. A parse-error-riddled tree
 //! still yields the comments, but its statement boundaries fall apart, and
 //! the length rule measured against a lone `with` keyword misfires. A
-//! scanner that knows the three comment forms and the four things that
+//! scanner that knows the four comment forms and the four things that
 //! can hide a marker gives the same comments with a statement boundary
 //! that holds up.
 
 use crate::comments::{CommentBlock, LineIndex};
+use crate::config::SqlConfig;
 
 /// Extracts `--`, `/* */`, and Jinja `{# #}` comments, ignoring markers
 /// inside `'...'` strings, `"..."` quoted identifiers, `$$...$$` bodies,
@@ -18,10 +19,15 @@ use crate::comments::{CommentBlock, LineIndex};
 /// and reading it as a comment would run every rule across the rest of
 /// the source, so the scan stops there.
 pub fn scan_sql_comments(source: &str) -> Vec<CommentBlock> {
+    scan_sql_comments_with_config(source, &SqlConfig::default())
+}
+
+/// Extracts SQL comments, optionally including `#` line comments.
+pub fn scan_sql_comments_with_config(source: &str, config: &SqlConfig) -> Vec<CommentBlock> {
     let line_of = LineIndex::new(source);
     let mut blocks: Vec<CommentBlock> = Vec::new();
 
-    for (start, end) in comment_spans(source) {
+    for (start, end) in comment_spans(source, config.hash_comments) {
         let start_line = line_of.line(start);
         let end_line = line_of.line(end.saturating_sub(1));
         let text = &source[start..end];
@@ -53,13 +59,13 @@ pub fn scan_sql_comments(source: &str) -> Vec<CommentBlock> {
 }
 
 /// Byte spans of each comment, in source order.
-fn comment_spans(source: &str) -> Vec<(usize, usize)> {
+fn comment_spans(source: &str, hash_comments: bool) -> Vec<(usize, usize)> {
     let bytes = source.as_bytes();
     let mut spans = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         let rest = &source[i..];
-        if rest.starts_with("--") {
+        if rest.starts_with("--") || (hash_comments && rest.starts_with('#')) {
             let end = rest.find('\n').map(|n| i + n).unwrap_or(bytes.len());
             spans.push((i, end));
             i = end;
